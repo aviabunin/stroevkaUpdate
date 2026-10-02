@@ -24,6 +24,9 @@ namespace stroevkaUpdate
         string targetName;          // "stroevka 27 dd-mm-yy"
         string oldVersionFolder;    // только в режиме из stroevka
 
+        int totalFiles;        // всего файлов в источнике
+        int copiedFiles;       // скопировано
+
         BackgroundWorker bgw = new BackgroundWorker();
         #endregion
 
@@ -163,14 +166,17 @@ namespace stroevkaUpdate
         private void RunStandaloneCopy(string folder)
         {
             btnUpdate.Enabled = false;
-            progressBar1.Visible = true;
-            progressBar1.Style = ProgressBarStyle.Marquee;
+            PrepareProgress(folder);
 
             bgw = new BackgroundWorker();
             bgw.WorkerReportsProgress = true;
+
             bgw.ProgressChanged += (s, e) =>
             {
-                if (e.UserState != null) progressStatusLabel2.Text = "Файл: " + e.UserState;
+                progressBar1.Value = e.ProgressPercentage;
+                progressStatusLabel1.Text = e.ProgressPercentage + " %";
+                if (e.UserState != null)
+                    progressStatusLabel2.Text = "Файл: " + e.UserState;
             };
 
             bgw.DoWork += (s, e) =>
@@ -184,7 +190,6 @@ namespace stroevkaUpdate
                     {
                         string backup = targetFolder + " last";
                         if (Directory.Exists(backup)) Directory.Delete(backup, true);
-                        Log.Write($"Старый каталог -> {backup}");
                         Directory.Move(targetFolder, backup);
                     }
 
@@ -266,14 +271,17 @@ namespace stroevkaUpdate
         private void BeginFullUpdate()
         {
             btnUpdate.Enabled = false;
-            progressBar1.Visible = true;
-            progressBar1.Style = ProgressBarStyle.Marquee;
+            PrepareProgress(serverFolder);   // <-- счёт файлов
 
             bgw = new BackgroundWorker();
             bgw.WorkerReportsProgress = true;
+
             bgw.ProgressChanged += (s, e) =>
             {
-                if (e.UserState != null) progressStatusLabel2.Text = "Файл: " + e.UserState;
+                progressBar1.Value = e.ProgressPercentage;
+                progressStatusLabel1.Text = e.ProgressPercentage + " %";
+                if (e.UserState != null)
+                    progressStatusLabel2.Text = "Файл: " + e.UserState;
             };
 
             bgw.DoWork += (s, e) =>
@@ -282,7 +290,6 @@ namespace stroevkaUpdate
                 catch (Exception ex)
                 {
                     Log.Write($"ОШИБКА: {ex.Message}");
-                    Log.Write($"Стек:   {ex.StackTrace}");
                     e.Result = ex;
                 }
             };
@@ -437,6 +444,22 @@ namespace stroevkaUpdate
             return Path.GetDirectoryName(latestExe);
         }
 
+        //private void CopyDirectory(string src, string dst, bool recursive, BackgroundWorker worker)
+        //{
+        //    Directory.CreateDirectory(dst);
+        //    var dir = new DirectoryInfo(src);
+
+        //    foreach (var file in dir.GetFiles())
+        //    {
+        //        string target = Path.Combine(dst, file.Name);
+        //        file.CopyTo(target, true);
+        //        worker.ReportProgress(0, file.FullName);
+        //    }
+        //    if (recursive)
+        //        foreach (var sub in dir.GetDirectories())
+        //            CopyDirectory(sub.FullName, Path.Combine(dst, sub.Name), true, worker);
+        //}
+
         private void CopyDirectory(string src, string dst, bool recursive, BackgroundWorker worker)
         {
             Directory.CreateDirectory(dst);
@@ -446,8 +469,16 @@ namespace stroevkaUpdate
             {
                 string target = Path.Combine(dst, file.Name);
                 file.CopyTo(target, true);
-                worker.ReportProgress(0, file.FullName);
+
+                copiedFiles++;
+                int percent = totalFiles > 0
+                    ? (int)((long)copiedFiles * 100 / totalFiles)
+                    : 0;
+                if (percent > 100) percent = 100;
+
+                worker.ReportProgress(percent, file.FullName);
             }
+
             if (recursive)
                 foreach (var sub in dir.GetDirectories())
                     CopyDirectory(sub.FullName, Path.Combine(dst, sub.Name), true, worker);
@@ -494,5 +525,27 @@ namespace stroevkaUpdate
                 }
             }
         }
+
+
+        /// <summary>
+        /// Настраивает прогрессбар и подготавливает счётчики.
+        /// </summary>
+        private void PrepareProgress(string sourceFolder)
+        {
+            totalFiles = Directory.EnumerateFiles(sourceFolder, "*", SearchOption.AllDirectories).Count();
+            copiedFiles = 0;
+
+            Log.Write($"Всего файлов для копирования: {totalFiles}");
+
+            progressBar1.Style = ProgressBarStyle.Continuous;
+            progressBar1.Minimum = 0;
+            progressBar1.Maximum = 100;
+            progressBar1.Value = 0;
+            progressBar1.Visible = true;
+
+            progressStatusLabel1.Text = "0 %";
+            progressStatusLabel2.Text = "Файл: ";
+        }
+
     }
 }
