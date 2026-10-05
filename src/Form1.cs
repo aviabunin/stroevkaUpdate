@@ -186,19 +186,60 @@ namespace stroevkaUpdate
                     string targetFolder = Path.Combine(destinationRoot, targetName);
                     Log.Write($"Автономно: копируем {folder} -> {targetFolder}");
 
+                    // 1. Старая папка, в которой уже лежит работающая версия
+                    //    (в автономном режиме это destinationRoot\targetName,
+                    //     но может быть и старая папка с другой датой)
+                    string actualOldFolder = null;
+
+                    // 1a. Если в целевом каталоге уже лежит версия — её надо сохранить
                     if (Directory.Exists(targetFolder))
                     {
-                        string backup = targetFolder + " last";
-                        if (Directory.Exists(backup)) Directory.Delete(backup, true);
-                        Directory.Move(targetFolder, backup);
+                        // сначала поищем внутри старый exe
+                        string oldExeInside = Path.Combine(targetFolder, "stroevkaI.exe");
+                        if (File.Exists(oldExeInside))
+                        {
+                            // переименовываем целевую папку в "… last"
+                            string backup = targetFolder + " last";
+                            if (Directory.Exists(backup))
+                            {
+                                Log.Write($"Удаляем прежний бэкап: {backup}");
+                                Directory.Delete(backup, true);
+                            }
+                            Log.Write($"Существующий каталог -> {backup}");
+                            Directory.Move(targetFolder, backup);
+                            actualOldFolder = backup;
+                        }
+                        else
+                        {
+                            // пустой/битый каталог — просто удалим
+                            Log.Write($"Каталог {targetFolder} без stroevkaI.exe — удаляем");
+                            Directory.Delete(targetFolder, true);
+                        }
                     }
 
+                    // 2. Копирование новой версии
+                    Log.Write("Копирование файлов новой версии...");
                     CopyDirectory(folder, targetFolder, true, bgw);
+                    Log.Write("Копирование завершено.");
 
+                    // 3. Ярлык на новую версию
                     string newExe = Path.Combine(targetFolder, "stroevkaI.exe");
                     ReplaceShortcut("stroevka 27.lnk", newExe, targetFolder);
 
-                    e.Result = targetFolder;
+                    // 4. Ярлык на предыдущую версию (если она была сохранена)
+                    string lastShortcut = null;
+                    if (actualOldFolder != null)
+                    {
+                        string oldExePath = Path.Combine(actualOldFolder, "stroevkaI.exe");
+                        if (File.Exists(oldExePath))
+                        {
+                            lastShortcut = "stroevka 27 last.lnk";
+                            Log.Write($"Создаём last-ярлык: Target={oldExePath} WorkDir={actualOldFolder}");
+                            ReplaceShortcut(lastShortcut, oldExePath, actualOldFolder);
+                        }
+                    }
+
+                    e.Result = new { Target = targetFolder, Last = lastShortcut };
                 }
                 catch (Exception ex) { e.Result = ex; }
             };
@@ -213,18 +254,25 @@ namespace stroevkaUpdate
                     Log.Write($"ОШИБКА: {ex.Message}");
                     MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка",
                                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
                 }
+
+                dynamic r = e.Result;
+                string tgt = (string)r.Target;
+                string last = (string)r.Last;
+
+                string msg =
+                    $"Программа обновлена до версии от {dateStr}.\n\n" +
+                    $"Каталог: {tgt}\n";
+
+                if (!string.IsNullOrEmpty(last))
+                    msg += $"Старая версия может быть запущена с помощью ярлыка:\n    \"{last}\"";
                 else
-                {
-                    string tgt = e.Result as string;
-                    Log.Write($"Автономное обновление завершено: {tgt}");
-                    MessageBox.Show(
-                        $"Программа обновлена до версии от {dateStr}.\n\n" +
-                        $"Каталог: {tgt}\n" +
-                        "Ярлык на рабочем столе: stroevka 27.lnk",
-                        "Обновление завершено",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
+                    msg += "Предыдущая версия не сохранилась (нечего было бэкапить).";
+
+                Log.Write($"Автономное обновление завершено: {tgt}, last={last}");
+                MessageBox.Show(msg, "Обновление завершено",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
             };
 
             bgw.RunWorkerAsync();
@@ -325,8 +373,10 @@ namespace stroevkaUpdate
                 Path.GetFileName(oldVersionFolder), targetName,
                 StringComparison.OrdinalIgnoreCase);
 
-            // 1. Если старая папка названа как целевая — в "last"
+            // 1. Старая папка (та, из которой запущено обновление)
             string actualOldFolder = oldVersionFolder;
+
+            // 1a. Если её имя совпадает с целевым — сначала в "last"
             if (sameName && Directory.Exists(oldVersionFolder))
             {
                 string oldBackup = oldVersionFolder + " last";
@@ -335,9 +385,13 @@ namespace stroevkaUpdate
                     Log.Write($"Удаляем прежний бэкап: {oldBackup}");
                     Directory.Delete(oldBackup, true);
                 }
-                Log.Write($"Старая версия -> {oldBackup}");
+                Log.Write($"Переименовываем старую версию: {oldVersionFolder} -> {oldBackup}");
                 Directory.Move(oldVersionFolder, oldBackup);
                 actualOldFolder = oldBackup;
+            }
+            else
+            {
+                Log.Write($"Переименование старой версии не требуется (имя = {Path.GetFileName(oldVersionFolder)})");
             }
 
             // 2. Если целевая папка уже существует — в "last"
@@ -358,20 +412,46 @@ namespace stroevkaUpdate
             CopyDirectory(serverFolder, targetFolder, true, bgw);
             Log.Write("Копирование завершено.");
 
-            // 4. Обновляем основной ярлык
+            // 4. Основной ярлык ? новая версия
             string newExe = Path.Combine(targetFolder, "stroevkaI.exe");
             ReplaceShortcut("stroevka 27.lnk", newExe, targetFolder);
 
-            // 5. Ярлык "last" на старую версию
-            string oldExe = Path.Combine(actualOldFolder, "stroevkaI.exe");
-            string lastShortcut = "stroevka 27 last.lnk";
-            if (File.Exists(oldExe))
+            // 5. Ярлык "last" ? старая версия
+            //    Проверяем фактическое существование папки, а не assumed
+            string oldExePath = null;
+            string finalOldFolder = null;
+
+            if (Directory.Exists(actualOldFolder))
             {
-                ReplaceShortcut(lastShortcut, oldExe, actualOldFolder);
+                string candidate = Path.Combine(actualOldFolder, "stroevkaI.exe");
+                if (File.Exists(candidate))
+                {
+                    oldExePath = candidate;
+                    finalOldFolder = actualOldFolder;
+                }
+            }
+
+            // fallback: возможно, папка переименовалась иначе
+            if (oldExePath == null && Directory.Exists(oldVersionFolder))
+            {
+                string candidate = Path.Combine(oldVersionFolder, "stroevkaI.exe");
+                if (File.Exists(candidate))
+                {
+                    oldExePath = candidate;
+                    finalOldFolder = oldVersionFolder;
+                }
+            }
+
+            string lastShortcut = "stroevka 27 last.lnk";
+
+            if (oldExePath != null)
+            {
+                Log.Write($"Создаём last-ярлык: Target={oldExePath} WorkDir={finalOldFolder}");
+                ReplaceShortcut(lastShortcut, oldExePath, finalOldFolder);
             }
             else
             {
-                Log.Write($"Старый exe не найден, ярлык 'last' не создан: {oldExe}");
+                Log.Write($"Старый exe не найден, ярлык 'last' не создан.");
                 lastShortcut = "(старая версия недоступна)";
             }
 

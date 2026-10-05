@@ -12,10 +12,9 @@ namespace stroevkaUpdate.Services
         {
             var dir = Path.Combine(AppContext.BaseDirectory, "logs");
             Directory.CreateDirectory(dir);
-            _path = Path.Combine(dir, $"stroevka_{DateTime.Now:yyyy-MM-dd}.log");
+            _path = Path.Combine(dir, $"stroevkaUpdate_{DateTime.Now:yyyy-MM-dd}.log");
 
-            // Очищаем файл при каждом запуске
-            File.WriteAllText(_path, string.Empty);
+            try { File.WriteAllText(_path, string.Empty); } catch { }
 
             Trace.Listeners.Add(new TextWriterTraceListener(_path));
             Trace.AutoFlush = true;
