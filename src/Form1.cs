@@ -14,6 +14,11 @@ namespace stroevkaUpdate
     public partial class Form1 : Form
     {
         #region Поля
+
+        bool fromStroevka = false;
+        string fromStroevkaDir = null;
+
+
         const string SourcePath10 = @"\\10.37.128.210\temp\stroevka 27";
         const string SourcePath192 = @"\\192.168.3.75\stroevka 27";
 
@@ -38,34 +43,100 @@ namespace stroevkaUpdate
         // -------------------------------------------------------------
         // Запуск
         // -------------------------------------------------------------
+        private static string CleanArg(string s)
+                => string.IsNullOrEmpty(s) ? s : s.Trim('"', ' ', '\t');
         private void Form1_Load(object sender, EventArgs e)
         {
-            Log.Write("=== Запуск модуля обновления ===");
 
+
+
+
+            Log.Write("=== Запуск модуля обновления ===");
             var args = Environment.GetCommandLineArgs();
 
-            // Режим перезапуска из %TEMP%: --do-update "<oldFolder>" "<serverFolder>" "<dst>"
+            // Режим --do-update (второй инстанс из %TEMP%)
             if (args.Length >= 4 && args[1] == "--do-update")
             {
-                oldVersionFolder = args[2];
-                serverFolder = args[3];
-                destinationRoot = args.Length > 4 ? args[4] : @"D:\";
-
+                oldVersionFolder = CleanArg(args[2]).TrimEnd(Path.DirectorySeparatorChar);
+                serverFolder = CleanArg(args[3]).TrimEnd(Path.DirectorySeparatorChar);
+                destinationRoot = args.Length > 4
+                                   ? CleanArg(args[4]).TrimEnd(Path.DirectorySeparatorChar)
+                                   : @"D:";
                 Log.Write($"Режим --do-update");
                 Log.Write($"  old    = {oldVersionFolder}");
                 Log.Write($"  server = {serverFolder}");
                 Log.Write($"  dst    = {destinationRoot}");
-
-                // Дадим родителю время освободить папку
                 Thread.Sleep(1200);
-
                 BeginFullUpdate();
                 return;
             }
 
-            // Обычный UI
+            // Режим --from-stroevka (запущены из stroevkaI)
+            if (args.Length >= 3 && args[1] == "--from-stroevka")
+            {
+                fromStroevka = true;
+                fromStroevkaDir = args[2].TrimEnd(Path.DirectorySeparatorChar);
+                Log.Write($"Режим --from-stroevka, old={fromStroevkaDir}");
+            }
+            else
+            {
+                // fallback: если запущены из папки версии — тоже считаем «из stroevka»
+                string currentDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+                string currentName = Path.GetFileName(currentDir);
+                if (currentName.StartsWith("stroevka 27 ", StringComparison.OrdinalIgnoreCase))
+                {
+                    fromStroevka = true;
+                    fromStroevkaDir = currentDir;
+                    Log.Write($"Режим определён по имени папки: {currentDir}");
+                }
+                else
+                {
+                    Log.Write("Автономный режим (аргументы не заданы, имя папки не совпало)");
+                }
+            }
+
             InitUi();
         }
+
+        //private void Form1_Load(object sender, EventArgs e)
+        //{
+        //    Log.Write("=== Запуск модуля обновления ===");
+
+        //    var args = Environment.GetCommandLineArgs();
+
+        //    // режим «из stroevka» (запуск из главной программы)
+        //    if (args.Length >= 3 && args[1] == "--from-stroevka")
+        //    {
+        //        oldVersionFolder = args[2];
+        //        Log.Write($"Режим --from-stroevka, old={oldVersionFolder}");
+        //        fromStroevka = true;
+        //        InitUi();  // покажем UI и дадим пользователю нажать «Обновить»
+        //        return;
+        //    }
+
+
+        //    // Режим перезапуска из %TEMP%: --do-update "<oldFolder>" "<serverFolder>" "<dst>"
+        //    if (args.Length >= 4 && args[1] == "--do-update")
+        //    {
+        //        oldVersionFolder = args[2];
+        //        serverFolder = args[3];
+        //        destinationRoot = args.Length > 4 ? args[4] : @"D:\";
+
+        //        Log.Write($"Режим --do-update");
+        //        Log.Write($"  old    = {oldVersionFolder}");
+        //        Log.Write($"  server = {serverFolder}");
+        //        Log.Write($"  dst    = {destinationRoot}");
+
+        //        // Дадим родителю время освободить папку
+        //        Thread.Sleep(1200);
+
+        //        BeginFullUpdate();
+        //        return;
+        //    }
+
+        //    // Обычный UI
+        //    InitUi();
+        //}
 
         private void InitUi()
         {
@@ -96,6 +167,7 @@ namespace stroevkaUpdate
         // -------------------------------------------------------------
         private void btnUpdate_Click(object sender, EventArgs e)
         {
+
             if (string.IsNullOrEmpty(sourcePath))
             {
                 MessageBox.Show("Источник не выбран.", "Ошибка");
@@ -106,7 +178,8 @@ namespace stroevkaUpdate
                 MessageBox.Show("Выберите диск для копирования.", "Ошибка");
                 return;
             }
-            destinationRoot = cmbDisk.SelectedItem.ToString();
+            destinationRoot = cmbDisk.SelectedItem.ToString()
+                                 .TrimEnd(Path.DirectorySeparatorChar);
 
             // 1. Ищем папку с самым свежим stroevkaI.exe
             string folder = FindLatestVersionFolder();
@@ -144,20 +217,35 @@ namespace stroevkaUpdate
             bool fromVersionFolder = currentName.StartsWith(
                 "stroevka 27 ", StringComparison.OrdinalIgnoreCase);
 
-            if (fromVersionFolder)
+
+
+
+            if (fromStroevka && !string.IsNullOrEmpty(fromStroevkaDir))
             {
-                // Режим обновления из stroevka
-                oldVersionFolder = currentDir;
+                oldVersionFolder = fromStroevkaDir;
                 serverFolder = folder;
-                Log.Write("Режим: обновление из stroevka. Перезапуск из %TEMP%.");
-                RelaunchFromTemp(currentDir, folder, destinationRoot);
+                Log.Write($"Режим: обновление из stroevka. Old={oldVersionFolder}. Перезапуск из %TEMP%.");
+                RelaunchFromTemp(oldVersionFolder, folder, destinationRoot);
             }
             else
             {
-                // Автономный режим
                 Log.Write("Режим: автономный. Копирование без перезапуска.");
                 RunStandaloneCopy(folder);
             }
+            //if (fromVersionFolder)
+            //{
+            //    // Режим обновления из stroevka
+            //    oldVersionFolder = currentDir;
+            //    serverFolder = folder;
+            //    Log.Write("Режим: обновление из stroevka. Перезапуск из %TEMP%.");
+            //    RelaunchFromTemp(currentDir, folder, destinationRoot);
+            //}
+            //else
+            //{
+            //    // Автономный режим
+            //    Log.Write("Режим: автономный. Копирование без перезапуска.");
+            //    RunStandaloneCopy(folder);
+            //}
         }
 
         // -------------------------------------------------------------
@@ -281,8 +369,16 @@ namespace stroevkaUpdate
         // -------------------------------------------------------------
         // Режим из stroevka: копируем себя в %TEMP% и перезапускаемся
         // -------------------------------------------------------------
+        // -------------------------------------------------------------
+        // Режим из stroevka: копируем себя в %TEMP% и перезапускаемся
+        // -------------------------------------------------------------
         private void RelaunchFromTemp(string currentDir, string folder, string dst)
         {
+            // Страховка: убираем завершающий '\' и случайные кавычки
+            currentDir = currentDir.TrimEnd(Path.DirectorySeparatorChar).Trim('"', ' ');
+            folder = folder.Trim('"', ' ');
+            dst = dst.TrimEnd(Path.DirectorySeparatorChar).Trim('"', ' ');
+
             string tempDir = Path.Combine(Path.GetTempPath(), "stroevkaUpdate");
             Directory.CreateDirectory(tempDir);
 
@@ -302,13 +398,21 @@ namespace stroevkaUpdate
 
             string tempExe = Path.Combine(tempDir, "stroevkaUpdate.exe");
             Log.Write($"Перезапуск из {tempExe} с параметрами --do-update");
+            Log.Write($"  currentDir = {currentDir}");
+            Log.Write($"  folder     = {folder}");
+            Log.Write($"  dst        = {dst}");
 
-            Process.Start(new ProcessStartInfo
+            var psi = new ProcessStartInfo
             {
                 FileName = tempExe,
-                Arguments = $"--do-update \"{currentDir}\" \"{folder}\" \"{dst}\"",
                 UseShellExecute = false
-            });
+            };
+            psi.ArgumentList.Add("--do-update");
+            psi.ArgumentList.Add(currentDir);
+            psi.ArgumentList.Add(folder);
+            psi.ArgumentList.Add(dst);
+
+            Process.Start(psi);
 
             Application.Exit();
         }
