@@ -19,7 +19,7 @@ namespace stroevkaUpdate
         string fromStroevkaDir = null;
 
 
-        const string SourcePath10 = @"\\10.37.128.210\temp\stroevka 27";
+        const string SourcePath10 = @"\\10.37.128.210\temp\СПТ\stroevka 27";
         const string SourcePath192 = @"\\192.168.3.75\stroevka 27";
 
         string sourcePath;          // для автономного режима — каталог на сервере
@@ -38,6 +38,7 @@ namespace stroevkaUpdate
         public Form1()
         {
             InitializeComponent();
+
         }
 
         // -------------------------------------------------------------
@@ -47,13 +48,10 @@ namespace stroevkaUpdate
                 => string.IsNullOrEmpty(s) ? s : s.Trim('"', ' ', '\t');
         private void Form1_Load(object sender, EventArgs e)
         {
-
-
-
-
+            #region Запуск модуля обновления - с парам do-update and  --from-stroevka
             Log.Write("=== Запуск модуля обновления ===");
             var args = Environment.GetCommandLineArgs();
-
+            //Что означает этот режим, он вроде не используется - код может быть перенести что-то
             // Режим --do-update (второй инстанс из %TEMP%)
             if (args.Length >= 4 && args[1] == "--do-update")
             {
@@ -94,49 +92,9 @@ namespace stroevkaUpdate
                     Log.Write("Автономный режим (аргументы не заданы, имя папки не совпало)");
                 }
             }
-
+            #endregion
             InitUi();
         }
-
-        //private void Form1_Load(object sender, EventArgs e)
-        //{
-        //    Log.Write("=== Запуск модуля обновления ===");
-
-        //    var args = Environment.GetCommandLineArgs();
-
-        //    // режим «из stroevka» (запуск из главной программы)
-        //    if (args.Length >= 3 && args[1] == "--from-stroevka")
-        //    {
-        //        oldVersionFolder = args[2];
-        //        Log.Write($"Режим --from-stroevka, old={oldVersionFolder}");
-        //        fromStroevka = true;
-        //        InitUi();  // покажем UI и дадим пользователю нажать «Обновить»
-        //        return;
-        //    }
-
-
-        //    // Режим перезапуска из %TEMP%: --do-update "<oldFolder>" "<serverFolder>" "<dst>"
-        //    if (args.Length >= 4 && args[1] == "--do-update")
-        //    {
-        //        oldVersionFolder = args[2];
-        //        serverFolder = args[3];
-        //        destinationRoot = args.Length > 4 ? args[4] : @"D:\";
-
-        //        Log.Write($"Режим --do-update");
-        //        Log.Write($"  old    = {oldVersionFolder}");
-        //        Log.Write($"  server = {serverFolder}");
-        //        Log.Write($"  dst    = {destinationRoot}");
-
-        //        // Дадим родителю время освободить папку
-        //        Thread.Sleep(1200);
-
-        //        BeginFullUpdate();
-        //        return;
-        //    }
-
-        //    // Обычный UI
-        //    InitUi();
-        //}
 
         private void InitUi()
         {
@@ -167,7 +125,7 @@ namespace stroevkaUpdate
         // -------------------------------------------------------------
         private void btnUpdate_Click(object sender, EventArgs e)
         {
-
+ 
             if (string.IsNullOrEmpty(sourcePath))
             {
                 MessageBox.Show("Источник не выбран.", "Ошибка");
@@ -211,6 +169,7 @@ namespace stroevkaUpdate
                 return;
             }
 
+
             // 3. Определяем, запущены ли мы из папки версии stroevka
             string currentDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
             string currentName = Path.GetFileName(currentDir);
@@ -253,7 +212,8 @@ namespace stroevkaUpdate
         // -------------------------------------------------------------
         private void RunStandaloneCopy(string folder)
         {
-            btnUpdate.Enabled = false;
+            btnUpdate.Enabled = false;   
+            ShowBottomPanel();// <-- показали панель
             PrepareProgress(folder);
 
             bgw = new BackgroundWorker();
@@ -335,13 +295,11 @@ namespace stroevkaUpdate
             bgw.RunWorkerCompleted += (s, e) =>
             {
                 btnUpdate.Enabled = true;
-                progressBar1.Visible = false;
 
                 if (e.Result is Exception ex)
                 {
                     Log.Write($"ОШИБКА: {ex.Message}");
-                    MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка",
-                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    FinishUpdate(false, $"Ошибка: {ex.Message}");
                     return;
                 }
 
@@ -359,8 +317,7 @@ namespace stroevkaUpdate
                     msg += "Предыдущая версия не сохранилась (нечего было бэкапить).";
 
                 Log.Write($"Автономное обновление завершено: {tgt}, last={last}");
-                MessageBox.Show(msg, "Обновление завершено",
-                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                FinishUpdate(true, msg);
             };
 
             bgw.RunWorkerAsync();
@@ -423,6 +380,7 @@ namespace stroevkaUpdate
         private void BeginFullUpdate()
         {
             btnUpdate.Enabled = false;
+            ShowBottomPanel();// <-- показали панель
             PrepareProgress(serverFolder);   // <-- счёт файлов
 
             bgw = new BackgroundWorker();
@@ -449,9 +407,16 @@ namespace stroevkaUpdate
             bgw.RunWorkerCompleted += (s, e) =>
             {
                 if (e.Result is Exception ex)
-                    MessageBox.Show($"Ошибка обновления: {ex.Message}", "Ошибка",
-                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                Application.Exit();
+                {
+                    Log.Write($"ОШИБКА: {ex.Message}");
+                    FinishUpdate(false, $"Ошибка обновления: {ex.Message}");
+                    return;
+                }
+
+                // PerformFullUpdate уже сам покажет финальное сообщение
+                // со ссылкой на last-ярлык (см. шаг 8). Значит, здесь
+                // достаточно скрыть панель и закрыть форму.
+                FinishUpdate(true);
             };
 
             bgw.RunWorkerAsync();
@@ -459,7 +424,14 @@ namespace stroevkaUpdate
 
         private void PerformFullUpdate()
         {
+
+            // 0. Сначала закрываем старую версию, чтобы она освободила папку
+            KillProcess("stroevkaI");
+            Thread.Sleep(1500);
+
             string serverExe = Path.Combine(serverFolder, "stroevkaI.exe");
+
+            Log.Write($" ищем serverFolder  = {serverFolder}");
             if (!File.Exists(serverExe))
                 throw new Exception("Не найден stroevkaI.exe: " + serverExe);
 
@@ -479,6 +451,9 @@ namespace stroevkaUpdate
 
             // 1. Старая папка (та, из которой запущено обновление)
             string actualOldFolder = oldVersionFolder;
+
+            if(sameName)
+                Log.Write($"  запуск из {oldVersionFolder}  в {targetFolder}");
 
             // 1a. Если её имя совпадает с целевым — сначала в "last"
             if (sameName && Directory.Exists(oldVersionFolder))
@@ -559,9 +534,7 @@ namespace stroevkaUpdate
                 lastShortcut = "(старая версия недоступна)";
             }
 
-            // 6. Убиваем stroevkaI
-            KillProcess("stroevkaI");
-            Thread.Sleep(1500);
+
 
             // 7. Запускаем новую версию
             Log.Write($"Запуск новой версии: {newExe}");
@@ -729,6 +702,59 @@ namespace stroevkaUpdate
 
             progressStatusLabel1.Text = "0 %";
             progressStatusLabel2.Text = "Файл: ";
+        }
+
+        /// <summary>
+        /// Завершение процедуры обновления: скрыть прогресс,
+        /// показать сообщение, при успехе — закрыть форму через 1 сек.
+        /// </summary>
+        private void FinishUpdate(bool success, string message = null)
+        {
+            //splitContainer1.Panel2Collapsed = true;
+            HideBottomPanel();
+
+            if (!string.IsNullOrEmpty(message))
+            {
+                MessageBox.Show(
+                    message,
+                    success ? "Обновление завершено" : "Ошибка",
+                    MessageBoxButtons.OK,
+                    success ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+            }
+
+            if (success)
+            {
+                // Дать пользователю прочитать сообщение и закрыть окно
+                var t = new System.Windows.Forms.Timer { Interval = 1000 };
+                t.Tick += (s, e) =>
+                {
+                    t.Stop();
+                    t.Dispose();
+                    Application.Exit();
+                };
+                t.Start();
+            }
+        }
+        //private void changeVisibilityBottomPanel() {
+        //    splitContainer1.Panel2Collapsed = !splitContainer1.Panel2Collapsed;
+        //    this.Height = splitContainer1.Panel2Collapsed ? 117 : 200;
+        //}
+        private void ShowBottomPanel()
+        {
+            if (splitContainer1.Panel2Collapsed)
+            {
+                splitContainer1.Panel2Collapsed = false;
+                this.Height += splitContainer1.Panel2.Height;   // растянуть
+            }
+        }
+
+        private void HideBottomPanel()
+        {
+            if (!splitContainer1.Panel2Collapsed)
+            {
+                this.Height -= splitContainer1.Panel2.Height;   // сжать
+                splitContainer1.Panel2Collapsed = true;
+            }
         }
 
     }
