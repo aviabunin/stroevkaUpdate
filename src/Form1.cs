@@ -48,51 +48,7 @@ namespace stroevkaUpdate
                 => string.IsNullOrEmpty(s) ? s : s.Trim('"', ' ', '\t');
         private void Form1_Load(object sender, EventArgs e)
         {
-            #region Запуск модуля обновления - с парам do-update and  --from-stroevka
             Log.Write("=== Запуск модуля обновления ===");
-            var args = Environment.GetCommandLineArgs();
-            //Что означает этот режим, он вроде не используется - код может быть перенести что-то
-            // Режим --do-update (второй инстанс из %TEMP%)
-            if (args.Length >= 4 && args[1] == "--do-update")
-            {
-                oldVersionFolder = CleanArg(args[2]).TrimEnd(Path.DirectorySeparatorChar);
-                serverFolder = CleanArg(args[3]).TrimEnd(Path.DirectorySeparatorChar);
-                destinationRoot = args.Length > 4
-                                   ? CleanArg(args[4]).TrimEnd(Path.DirectorySeparatorChar)
-                                   : @"D:";
-                Log.Write($"Режим --do-update");
-                Log.Write($"  old    = {oldVersionFolder}");
-                Log.Write($"  server = {serverFolder}");
-                Log.Write($"  dst    = {destinationRoot}");
-                Thread.Sleep(1200);
-                BeginFullUpdate();
-                return;
-            }
-
-            // Режим --from-stroevka (запущены из stroevkaI)
-            if (args.Length >= 3 && args[1] == "--from-stroevka")
-            {
-                fromStroevka = true;
-                fromStroevkaDir = args[2].TrimEnd(Path.DirectorySeparatorChar);
-                Log.Write($"Режим --from-stroevka, old={fromStroevkaDir}");
-            }
-            else
-            {
-                // fallback: если запущены из папки версии — тоже считаем «из stroevka»
-                string currentDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
-                string currentName = Path.GetFileName(currentDir);
-                if (currentName.StartsWith("stroevka 27 ", StringComparison.OrdinalIgnoreCase))
-                {
-                    fromStroevka = true;
-                    fromStroevkaDir = currentDir;
-                    Log.Write($"Режим определён по имени папки: {currentDir}");
-                }
-                else
-                {
-                    Log.Write("Автономный режим (аргументы не заданы, имя папки не совпало)");
-                }
-            }
-            #endregion
             InitUi();
         }
 
@@ -125,7 +81,6 @@ namespace stroevkaUpdate
         // -------------------------------------------------------------
         private void btnUpdate_Click(object sender, EventArgs e)
         {
- 
             if (string.IsNullOrEmpty(sourcePath))
             {
                 MessageBox.Show("Источник не выбран.", "Ошибка");
@@ -137,9 +92,8 @@ namespace stroevkaUpdate
                 return;
             }
             destinationRoot = cmbDisk.SelectedItem.ToString()
-                                 .TrimEnd(Path.DirectorySeparatorChar);
+                                     .TrimEnd(Path.DirectorySeparatorChar);
 
-            // 1. Ищем папку с самым свежим stroevkaI.exe
             string folder = FindLatestVersionFolder();
             if (folder == null)
             {
@@ -153,12 +107,11 @@ namespace stroevkaUpdate
             dateStr = fileDate.ToString("dd-MM-yy");
             targetName = $"stroevka 27 {dateStr}";
 
-            // 2. Спрашиваем
             Log.Write($"Найден файл обновления от {dateStr}: {exePath}");
             var res = MessageBox.Show(
                 $"Найден файл с обновлением от {dateStr}.\n\n" +
                 $"Каталог новой версии: {targetName}\n\n" +
-                "Обновить программу?",
+                "Скопировать обновление?",
                 "Обновление строевки",
                 MessageBoxButtons.OKCancel,
                 MessageBoxIcon.Question);
@@ -169,42 +122,7 @@ namespace stroevkaUpdate
                 return;
             }
 
-
-            // 3. Определяем, запущены ли мы из папки версии stroevka
-            string currentDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
-            string currentName = Path.GetFileName(currentDir);
-            bool fromVersionFolder = currentName.StartsWith(
-                "stroevka 27 ", StringComparison.OrdinalIgnoreCase);
-
-
-
-
-            if (fromStroevka && !string.IsNullOrEmpty(fromStroevkaDir))
-            {
-                oldVersionFolder = fromStroevkaDir;
-                serverFolder = folder;
-                Log.Write($"Режим: обновление из stroevka. Old={oldVersionFolder}. Перезапуск из %TEMP%.");
-                RelaunchFromTemp(oldVersionFolder, folder, destinationRoot);
-            }
-            else
-            {
-                Log.Write("Режим: автономный. Копирование без перезапуска.");
-                RunStandaloneCopy(folder);
-            }
-            //if (fromVersionFolder)
-            //{
-            //    // Режим обновления из stroevka
-            //    oldVersionFolder = currentDir;
-            //    serverFolder = folder;
-            //    Log.Write("Режим: обновление из stroevka. Перезапуск из %TEMP%.");
-            //    RelaunchFromTemp(currentDir, folder, destinationRoot);
-            //}
-            //else
-            //{
-            //    // Автономный режим
-            //    Log.Write("Режим: автономный. Копирование без перезапуска.");
-            //    RunStandaloneCopy(folder);
-            //}
+            RunStandaloneCopy(folder);
         }
 
         // -------------------------------------------------------------
@@ -212,8 +130,8 @@ namespace stroevkaUpdate
         // -------------------------------------------------------------
         private void RunStandaloneCopy(string folder)
         {
-            btnUpdate.Enabled = false;   
-            ShowBottomPanel();// <-- показали панель
+            btnUpdate.Enabled = false;
+            ShowBottomPanel();
             PrepareProgress(folder);
 
             bgw = new BackgroundWorker();
@@ -232,62 +150,31 @@ namespace stroevkaUpdate
                 try
                 {
                     string targetFolder = Path.Combine(destinationRoot, targetName);
-                    Log.Write($"Автономно: копируем {folder} -> {targetFolder}");
+                    Log.Write($"Копируем {folder} -> {targetFolder}");
 
-                    // 1. Старая папка, в которой уже лежит работающая версия
-                    //    (в автономном режиме это destinationRoot\targetName,
-                    //     но может быть и старая папка с другой датой)
-                    string actualOldFolder = null;
-
-                    // 1a. Если в целевом каталоге уже лежит версия — её надо сохранить
+                    // Если каталог с таким именем уже есть — в "last" (без удаления)
                     if (Directory.Exists(targetFolder))
                     {
-                        // сначала поищем внутри старый exe
-                        string oldExeInside = Path.Combine(targetFolder, "stroevkaI.exe");
-                        if (File.Exists(oldExeInside))
+                        string backup = targetFolder + " last";
+                        if (Directory.Exists(backup))
                         {
-                            // переименовываем целевую папку в "… last"
-                            string backup = targetFolder + " last";
-                            if (Directory.Exists(backup))
-                            {
-                                Log.Write($"Удаляем прежний бэкап: {backup}");
-                                Directory.Delete(backup, true);
-                            }
-                            Log.Write($"Существующий каталог -> {backup}");
-                            Directory.Move(targetFolder, backup);
-                            actualOldFolder = backup;
+                            Log.Write($"Удаляем прежний бэкап: {backup}");
+                            Directory.Delete(backup, true);
                         }
-                        else
-                        {
-                            // пустой/битый каталог — просто удалим
-                            Log.Write($"Каталог {targetFolder} без stroevkaI.exe — удаляем");
-                            Directory.Delete(targetFolder, true);
-                        }
+                        Log.Write($"Существующий каталог -> {backup}");
+                        Directory.Move(targetFolder, backup);
                     }
 
-                    // 2. Копирование новой версии
                     Log.Write("Копирование файлов новой версии...");
                     CopyDirectory(folder, targetFolder, true, bgw);
                     Log.Write("Копирование завершено.");
 
-                    // 3. Ярлык на новую версию
+                    // Ярлык на новую версию с датой в имени
                     string newExe = Path.Combine(targetFolder, "stroevkaI.exe");
-                    ReplaceShortcut("stroevka 27.lnk", newExe, targetFolder);
+                    string shortcutName = $"stroevka 27 {dateStr}.lnk";
+                    ReplaceShortcut(shortcutName, newExe, targetFolder);
 
-                    // 4. Ярлык на предыдущую версию (если она была сохранена)
-                    string lastShortcut = null;
-                    if (actualOldFolder != null)
-                    {
-                        string oldExePath = Path.Combine(actualOldFolder, "stroevkaI.exe");
-                        if (File.Exists(oldExePath))
-                        {
-                            lastShortcut = "stroevka 27 last.lnk";
-                            Log.Write($"Создаём last-ярлык: Target={oldExePath} WorkDir={actualOldFolder}");
-                            ReplaceShortcut(lastShortcut, oldExePath, actualOldFolder);
-                        }
-                    }
-
-                    e.Result = new { Target = targetFolder, Last = lastShortcut };
+                    e.Result = new { Target = targetFolder, Shortcut = shortcutName };
                 }
                 catch (Exception ex) { e.Result = ex; }
             };
@@ -295,264 +182,37 @@ namespace stroevkaUpdate
             bgw.RunWorkerCompleted += (s, e) =>
             {
                 btnUpdate.Enabled = true;
+                HideBottomPanel();
 
                 if (e.Result is Exception ex)
                 {
                     Log.Write($"ОШИБКА: {ex.Message}");
-                    FinishUpdate(false, $"Ошибка: {ex.Message}");
+                    MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
                 dynamic r = e.Result;
                 string tgt = (string)r.Target;
-                string last = (string)r.Last;
+                string shc = (string)r.Shortcut;
 
                 string msg =
-                    $"Программа обновлена до версии от {dateStr}.\n\n" +
-                    $"Каталог: {tgt}\n";
+                    $"Обновление сохранено в каталоге:\n" +
+                    $"    {tgt}\n\n" +
+                    $"Создан ярлык:\n" +
+                    $"    {shc}\n\n" +
+                    $"Можете запустить новую версию с помощью этого ярлыка.";
 
-                if (!string.IsNullOrEmpty(last))
-                    msg += $"Старая версия может быть запущена с помощью ярлыка:\n    \"{last}\"";
-                else
-                    msg += "Предыдущая версия не сохранилась (нечего было бэкапить).";
+                Log.Write($"Обновление завершено: {tgt}, ярлык {shc}");
+                MessageBox.Show(msg, "Обновление сохранено",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
 
-                Log.Write($"Автономное обновление завершено: {tgt}, last={last}");
-                FinishUpdate(true, msg);
+                // Форму НЕ закрываем — оператор закроет сам
             };
 
             bgw.RunWorkerAsync();
         }
 
-        // -------------------------------------------------------------
-        // Режим из stroevka: копируем себя в %TEMP% и перезапускаемся
-        // -------------------------------------------------------------
-        // -------------------------------------------------------------
-        // Режим из stroevka: копируем себя в %TEMP% и перезапускаемся
-        // -------------------------------------------------------------
-        private void RelaunchFromTemp(string currentDir, string folder, string dst)
-        {
-            // Страховка: убираем завершающий '\' и случайные кавычки
-            currentDir = currentDir.TrimEnd(Path.DirectorySeparatorChar).Trim('"', ' ');
-            folder = folder.Trim('"', ' ');
-            dst = dst.TrimEnd(Path.DirectorySeparatorChar).Trim('"', ' ');
-
-            string tempDir = Path.Combine(Path.GetTempPath(), "stroevkaUpdate");
-            Directory.CreateDirectory(tempDir);
-
-            // Копируем свои exe/dll/json
-            foreach (var pattern in new[] { "stroevkaUpdate*", "Interop.*.dll" })
-                foreach (var f in Directory.GetFiles(currentDir, pattern))
-                    try { File.Copy(f, Path.Combine(tempDir, Path.GetFileName(f)), true); } catch { }
-
-            // На всякий случай — сам exe
-            try
-            {
-                string myExe = Environment.ProcessPath;
-                if (!string.IsNullOrEmpty(myExe))
-                    File.Copy(myExe, Path.Combine(tempDir, Path.GetFileName(myExe)), true);
-            }
-            catch { }
-
-            string tempExe = Path.Combine(tempDir, "stroevkaUpdate.exe");
-            Log.Write($"Перезапуск из {tempExe} с параметрами --do-update");
-            Log.Write($"  currentDir = {currentDir}");
-            Log.Write($"  folder     = {folder}");
-            Log.Write($"  dst        = {dst}");
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = tempExe,
-                UseShellExecute = false
-            };
-            psi.ArgumentList.Add("--do-update");
-            psi.ArgumentList.Add(currentDir);
-            psi.ArgumentList.Add(folder);
-            psi.ArgumentList.Add(dst);
-
-            Process.Start(psi);
-
-            Application.Exit();
-        }
-
-        // -------------------------------------------------------------
-        // Полная процедура (из %TEMP%)
-        // -------------------------------------------------------------
-        private void BeginFullUpdate()
-        {
-            btnUpdate.Enabled = false;
-            ShowBottomPanel();// <-- показали панель
-            PrepareProgress(serverFolder);   // <-- счёт файлов
-
-            bgw = new BackgroundWorker();
-            bgw.WorkerReportsProgress = true;
-
-            bgw.ProgressChanged += (s, e) =>
-            {
-                progressBar1.Value = e.ProgressPercentage;
-                progressStatusLabel1.Text = e.ProgressPercentage + " %";
-                if (e.UserState != null)
-                    progressStatusLabel2.Text = "Файл: " + e.UserState;
-            };
-
-            bgw.DoWork += (s, e) =>
-            {
-                try { PerformFullUpdate(); }
-                catch (Exception ex)
-                {
-                    Log.Write($"ОШИБКА: {ex.Message}");
-                    e.Result = ex;
-                }
-            };
-
-            bgw.RunWorkerCompleted += (s, e) =>
-            {
-                if (e.Result is Exception ex)
-                {
-                    Log.Write($"ОШИБКА: {ex.Message}");
-                    FinishUpdate(false, $"Ошибка обновления: {ex.Message}");
-                    return;
-                }
-
-                // PerformFullUpdate уже сам покажет финальное сообщение
-                // со ссылкой на last-ярлык (см. шаг 8). Значит, здесь
-                // достаточно скрыть панель и закрыть форму.
-                FinishUpdate(true);
-            };
-
-            bgw.RunWorkerAsync();
-        }
-
-        private void PerformFullUpdate()
-        {
-
-            // 0. Сначала закрываем старую версию, чтобы она освободила папку
-            KillProcess("stroevkaI");
-            Thread.Sleep(1500);
-
-            string serverExe = Path.Combine(serverFolder, "stroevkaI.exe");
-
-            Log.Write($" ищем serverFolder  = {serverFolder}");
-            if (!File.Exists(serverExe))
-                throw new Exception("Не найден stroevkaI.exe: " + serverExe);
-
-            dateStr = File.GetLastWriteTime(serverExe).ToString("dd-MM-yy");
-            targetName = $"stroevka 27 {dateStr}";
-            targetName = targetName.Trim();
-            string targetFolder = Path.Combine(destinationRoot, targetName);
-
-            Log.Write($"Full update:");
-            Log.Write($"  serverFolder  = {serverFolder}");
-            Log.Write($"  oldVersionDir = {oldVersionFolder}");
-            Log.Write($"  targetFolder  = {targetFolder}");
-
-            bool sameName = string.Equals(
-                Path.GetFileName(oldVersionFolder), targetName,
-                StringComparison.OrdinalIgnoreCase);
-
-            // 1. Старая папка (та, из которой запущено обновление)
-            string actualOldFolder = oldVersionFolder;
-
-            if(sameName)
-                Log.Write($"  запуск из {oldVersionFolder}  в {targetFolder}");
-
-            // 1a. Если её имя совпадает с целевым — сначала в "last"
-            if (sameName && Directory.Exists(oldVersionFolder))
-            {
-                string oldBackup = oldVersionFolder + " last";
-                if (Directory.Exists(oldBackup))
-                {
-                    Log.Write($"Удаляем прежний бэкап: {oldBackup}");
-                    Directory.Delete(oldBackup, true);
-                }
-                Log.Write($"Переименовываем старую версию: {oldVersionFolder} -> {oldBackup}");
-                Directory.Move(oldVersionFolder, oldBackup);
-                actualOldFolder = oldBackup;
-            }
-            else
-            {
-                Log.Write($"Переименование старой версии не требуется (имя = {Path.GetFileName(oldVersionFolder)})");
-            }
-
-            // 2. Если целевая папка уже существует — в "last"
-            if (Directory.Exists(targetFolder))
-            {
-                string backup = targetFolder + " last";
-                if (Directory.Exists(backup))
-                {
-                    Log.Write($"Удаляем прежний бэкап: {backup}");
-                    Directory.Delete(backup, true);
-                }
-                Log.Write($"Существующий целевой каталог -> {backup}");
-                Directory.Move(targetFolder, backup);
-            }
-
-            // 3. Копирование
-            Log.Write("Копирование файлов новой версии...");
-            CopyDirectory(serverFolder, targetFolder, true, bgw);
-            Log.Write("Копирование завершено.");
-
-            // 4. Основной ярлык ? новая версия
-            string newExe = Path.Combine(targetFolder, "stroevkaI.exe");
-            ReplaceShortcut("stroevka 27.lnk", newExe, targetFolder);
-
-            // 5. Ярлык "last" ? старая версия
-            //    Проверяем фактическое существование папки, а не assumed
-            string oldExePath = null;
-            string finalOldFolder = null;
-
-            if (Directory.Exists(actualOldFolder))
-            {
-                string candidate = Path.Combine(actualOldFolder, "stroevkaI.exe");
-                if (File.Exists(candidate))
-                {
-                    oldExePath = candidate;
-                    finalOldFolder = actualOldFolder;
-                }
-            }
-
-            // fallback: возможно, папка переименовалась иначе
-            if (oldExePath == null && Directory.Exists(oldVersionFolder))
-            {
-                string candidate = Path.Combine(oldVersionFolder, "stroevkaI.exe");
-                if (File.Exists(candidate))
-                {
-                    oldExePath = candidate;
-                    finalOldFolder = oldVersionFolder;
-                }
-            }
-
-            string lastShortcut = "stroevka 27 last.lnk";
-
-            if (oldExePath != null)
-            {
-                Log.Write($"Создаём last-ярлык: Target={oldExePath} WorkDir={finalOldFolder}");
-                ReplaceShortcut(lastShortcut, oldExePath, finalOldFolder);
-            }
-            else
-            {
-                Log.Write($"Старый exe не найден, ярлык 'last' не создан.");
-                lastShortcut = "(старая версия недоступна)";
-            }
-
-
-
-            // 7. Запускаем новую версию
-            Log.Write($"Запуск новой версии: {newExe}");
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = newExe,
-                WorkingDirectory = targetFolder
-            });
-
-            // 8. Финальное сообщение
-            Log.Write($"Обновление завершено. Старая версия: \"{lastShortcut}\"");
-            MessageBox.Show(
-                $"Программа обновлена до версии от {dateStr}.\n\n" +
-                $"Старая версия может быть запущена с помощью ярлыка:\n" +
-                $"    \"{lastShortcut}\"",
-                "Обновление завершено",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
 
         // -------------------------------------------------------------
         // Вспомогательные
@@ -667,22 +327,6 @@ namespace stroevkaUpdate
             Log.Write($"Создан ярлык: {path} -> {exePath}");
         }
 
-        private void KillProcess(string name)
-        {
-            foreach (var p in Process.GetProcessesByName(name).ToList())
-            {
-                try
-                {
-                    Log.Write($"Останавливаем процесс: {name} (PID {p.Id})");
-                    p.Kill();
-                }
-                catch (Exception ex)
-                {
-                    Log.Write($"Не удалось остановить {name}: {ex.Message}");
-                }
-            }
-        }
-
 
         /// <summary>
         /// Настраивает прогрессбар и подготавливает счётчики.
@@ -704,41 +348,7 @@ namespace stroevkaUpdate
             progressStatusLabel2.Text = "Файл: ";
         }
 
-        /// <summary>
-        /// Завершение процедуры обновления: скрыть прогресс,
-        /// показать сообщение, при успехе — закрыть форму через 1 сек.
-        /// </summary>
-        private void FinishUpdate(bool success, string message = null)
-        {
-            //splitContainer1.Panel2Collapsed = true;
-            HideBottomPanel();
 
-            if (!string.IsNullOrEmpty(message))
-            {
-                MessageBox.Show(
-                    message,
-                    success ? "Обновление завершено" : "Ошибка",
-                    MessageBoxButtons.OK,
-                    success ? MessageBoxIcon.Information : MessageBoxIcon.Error);
-            }
-
-            if (success)
-            {
-                // Дать пользователю прочитать сообщение и закрыть окно
-                var t = new System.Windows.Forms.Timer { Interval = 1000 };
-                t.Tick += (s, e) =>
-                {
-                    t.Stop();
-                    t.Dispose();
-                    Application.Exit();
-                };
-                t.Start();
-            }
-        }
-        //private void changeVisibilityBottomPanel() {
-        //    splitContainer1.Panel2Collapsed = !splitContainer1.Panel2Collapsed;
-        //    this.Height = splitContainer1.Panel2Collapsed ? 117 : 200;
-        //}
         private void ShowBottomPanel()
         {
             if (splitContainer1.Panel2Collapsed)
