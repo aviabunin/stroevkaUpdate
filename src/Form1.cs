@@ -17,6 +17,8 @@ namespace stroevkaUpdate
 
         bool fromStroevka = false;
         string fromStroevkaDir = null;
+        private int _panel2Height = -1;
+        private int _normalFormHeight = -1;
 
 
         const string SourcePath10 = @"\\10.37.128.210\temp\СПТ\stroevka 27";
@@ -38,7 +40,13 @@ namespace stroevkaUpdate
         public Form1()
         {
             InitializeComponent();
+            // Запоминаем высоты, пока Panel2 ещё видима в дизайнере
+            _panel2Height = splitContainer1.Panel2.Height;
+            _normalFormHeight = this.Height - _panel2Height - splitContainer1.SplitterWidth;
 
+            // Сразу прячем Panel2 и подгоняем форму
+            splitContainer1.Panel2Collapsed = true;
+            this.Height = _normalFormHeight;
         }
 
         // -------------------------------------------------------------
@@ -105,7 +113,10 @@ namespace stroevkaUpdate
             string exePath = Path.Combine(folder, "stroevkaI.exe");
             DateTime fileDate = File.GetLastWriteTime(exePath);
             dateStr = fileDate.ToString("dd-MM-yy");
-            targetName = $"stroevka 27 {dateStr}";
+            string timeStr = fileDate.ToString("HH-mm");
+            targetName = $"stroevka 27 {dateStr} {timeStr}";
+
+
 
             Log.Write($"Найден файл обновления от {dateStr}: {exePath}");
             var res = MessageBox.Show(
@@ -354,16 +365,17 @@ namespace stroevkaUpdate
             if (splitContainer1.Panel2Collapsed)
             {
                 splitContainer1.Panel2Collapsed = false;
-                this.Height += splitContainer1.Panel2.Height;   // растянуть
+                this.Height = _normalFormHeight + _panel2Height + splitContainer1.SplitterWidth;
             }
         }
+
 
         private void HideBottomPanel()
         {
             if (!splitContainer1.Panel2Collapsed)
             {
-                this.Height -= splitContainer1.Panel2.Height;   // сжать
                 splitContainer1.Panel2Collapsed = true;
+                this.Height = _normalFormHeight;
             }
         }
 

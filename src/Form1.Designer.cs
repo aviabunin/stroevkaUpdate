@@ -134,7 +134,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.AutoSize = true;
+            //this.AutoSize = true;
             this.ClientSize = new System.Drawing.Size(431, 181);
             this.Controls.Add(this.splitContainer1);
             this.Name = "Form1";
